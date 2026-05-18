@@ -1,0 +1,12 @@
+{
+  "name": "ux-slack-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": { "start": "node index.js" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@slack/bolt": "latest",
+    "dotenv": "latest",
+    "express": "latest"
+  }
+}
