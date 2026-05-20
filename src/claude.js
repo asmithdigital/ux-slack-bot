@@ -28,6 +28,7 @@ honestly and suggest what data source might have the answer.
 - There are NO headers in Slack. Use *bold text* on its own line as a section heading instead.
 - Tables do NOT render in Slack. Use simple bullet lists instead.
 - Use bullet points (• or -) for lists.
+- Do not use horizontal rules (---). Use a blank line between sections instead.
 
 *Design system links — always follow these:*
 - When listing design system components, include a link to the design system site for each one on its own line after the component description.
