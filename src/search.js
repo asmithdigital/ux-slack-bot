@@ -1,5 +1,19 @@
 // src/search.js
 
+// ─── Figma fetch with 429 retry ───
+async function figmaFetch(url) {
+  const opts = { headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN } };
+  let res = await fetch(url, opts);
+  if (res.status === 429) {
+    await new Promise(r => setTimeout(r, 5000));
+    res = await fetch(url, opts);
+    if (res.status === 429) {
+      throw new Error('Figma is temporarily rate limited — please try again in a moment.');
+    }
+  }
+  return res;
+}
+
 // ─── Search Figma Design files ───
 export async function searchFigma(query) {
   try {
@@ -9,9 +23,7 @@ export async function searchFigma(query) {
     }
     let content = '';
     for (const key of fileKeys) {
-      const res = await fetch(`https://api.figma.com/v1/files/${key.trim()}`, {
-        headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN }
-      });
+      const res = await figmaFetch(`https://api.figma.com/v1/files/${key.trim()}`);
       if (!res.ok) {
         content += `\nCould not access Figma file ${key.trim()} (${res.status})`;
         continue;
@@ -41,9 +53,7 @@ export async function searchFigJam(query) {
     }
     let content = '';
     for (const key of fileKeys) {
-      const res = await fetch(`https://api.figma.com/v1/files/${key.trim()}`, {
-        headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN }
-      });
+      const res = await figmaFetch(`https://api.figma.com/v1/files/${key.trim()}`);
       if (!res.ok) {
         content += `\nCould not access FigJam file ${key.trim()} (${res.status})`;
         continue;
@@ -112,13 +122,13 @@ export async function searchGitHub(query) {
         name: 'Design System',
         owner: process.env.GITHUB_OWNER,
         repo: process.env.GITHUB_DS_REPO,
-        files: ['data/components.json', 'data/tokens.json', 'data/foundations.json']
+        files: ['public/data/components.json', 'public/data/tokens.json', 'public/data/foundations.json']
       },
       {
         name: 'Journey Management',
         owner: process.env.GITHUB_OWNER,
         repo: process.env.GITHUB_JM_REPO,
-        files: ['data/index.json']
+        files: ['public/data/index.json']
       }
     ];
     let content = '';
@@ -158,7 +168,7 @@ export async function searchGitHub(query) {
       }
       // Fetch individual journey files
       if (source.repo === process.env.GITHUB_JM_REPO && source.owner) {
-        const idxUrl = `https://raw.githubusercontent.com/${source.owner}/${source.repo}/main/data/index.json`;
+        const idxUrl = `https://raw.githubusercontent.com/${source.owner}/${source.repo}/main/public/data/index.json`;
         const idxRes = await fetch(idxUrl);
         if (idxRes.ok) {
           try {
@@ -169,7 +179,7 @@ export async function searchGitHub(query) {
               for (const ch of (top.children || [])) ids.push(ch.id);
             }
             for (const id of ids.slice(0, 10)) {
-              const jUrl = `https://raw.githubusercontent.com/${source.owner}/${source.repo}/main/data/journeys/${id}.json`;
+              const jUrl = `https://raw.githubusercontent.com/${source.owner}/${source.repo}/main/public/data/journeys/${id}.json`;
               const jRes = await fetch(jUrl);
               if (!jRes.ok) continue;
               try {
@@ -197,9 +207,8 @@ export async function searchGitHub(query) {
 
 // ─── Get a PNG image URL for a Figma node ───
 export async function getFigmaImage(fileKey, nodeId) {
-  const res = await fetch(
-    `https://api.figma.com/v1/images/${fileKey}?ids=${nodeId}&format=png&scale=2`,
-    { headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN } }
+  const res = await figmaFetch(
+    `https://api.figma.com/v1/images/${fileKey}?ids=${nodeId}&format=png&scale=2`
   );
   if (!res.ok) throw new Error(`Figma image API error: ${res.status}`);
   const data = await res.json();
@@ -212,9 +221,7 @@ export async function searchFigmaComponents(query) {
   const fileKeys = (process.env.FIGMA_FILE_KEYS || '').split(',').filter(Boolean);
   for (const key of fileKeys) {
     try {
-      const res = await fetch(`https://api.figma.com/v1/files/${key.trim()}/components`, {
-        headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN }
-      });
+      const res = await figmaFetch(`https://api.figma.com/v1/files/${key.trim()}/components`);
       if (!res.ok) continue;
       const data = await res.json();
       const components = data.meta?.components || [];
@@ -243,9 +250,7 @@ export async function searchFigmaFrames(query) {
   const fileKeys = (process.env.FIGMA_FILE_KEYS || '').split(',').filter(Boolean);
   for (const key of fileKeys) {
     try {
-      const res = await fetch(`https://api.figma.com/v1/files/${key.trim()}`, {
-        headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN }
-      });
+      const res = await figmaFetch(`https://api.figma.com/v1/files/${key.trim()}`);
       if (!res.ok) continue;
       const data = await res.json();
       const frames = [];
@@ -276,13 +281,10 @@ export async function detectChanges() {
   const liveByName = {};
   for (const key of fileKeys) {
     try {
-      const res = await fetch(`https://api.figma.com/v1/files/${key.trim()}/components`, {
-        headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN }
-      });
+      const res = await figmaFetch(`https://api.figma.com/v1/files/${key.trim()}/components`);
       if (!res.ok) continue;
       const data = await res.json();
       for (const c of (data.meta?.components || [])) {
-        // Use the component set name (root before '/') as the canonical name
         const rootName = c.containing_frame?.name || c.name.split('/')[0];
         if (!liveByName[rootName]) liveByName[rootName] = [];
         liveByName[rootName].push(c.name);
@@ -294,7 +296,7 @@ export async function detectChanges() {
   const publishedByName = {};
   if (process.env.GITHUB_OWNER && process.env.GITHUB_DS_REPO) {
     try {
-      const url = `https://raw.githubusercontent.com/${process.env.GITHUB_OWNER}/${process.env.GITHUB_DS_REPO}/main/data/components.json`;
+      const url = `https://raw.githubusercontent.com/${process.env.GITHUB_OWNER}/${process.env.GITHUB_DS_REPO}/main/public/data/components.json`;
       const res = await fetch(url);
       if (res.ok) {
         const data = JSON.parse(await res.text());
@@ -316,9 +318,7 @@ export async function detectChanges() {
   const removed = [...publishedNames].filter(n => !liveNames.has(n));
   const modified = [...liveNames].filter(n => {
     if (!publishedNames.has(n)) return false;
-    const liveVariantCount = liveByName[n].length;
-    const publishedVariantCount = publishedByName[n].length;
-    return liveVariantCount !== publishedVariantCount;
+    return liveByName[n].length !== publishedByName[n].length;
   });
 
   if (added.length === 0 && removed.length === 0 && modified.length === 0) {
