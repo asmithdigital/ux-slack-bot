@@ -194,3 +194,145 @@ export async function searchGitHub(query) {
     return `GitHub search error: ${e.message}`;
   }
 }
+
+// ─── Get a PNG image URL for a Figma node ───
+export async function getFigmaImage(fileKey, nodeId) {
+  const res = await fetch(
+    `https://api.figma.com/v1/images/${fileKey}?ids=${nodeId}&format=png&scale=2`,
+    { headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN } }
+  );
+  if (!res.ok) throw new Error(`Figma image API error: ${res.status}`);
+  const data = await res.json();
+  return data.images?.[nodeId] || null;
+}
+
+// ─── Search Figma published components with image URLs ───
+export async function searchFigmaComponents(query) {
+  const results = [];
+  const fileKeys = (process.env.FIGMA_FILE_KEYS || '').split(',').filter(Boolean);
+  for (const key of fileKeys) {
+    try {
+      const res = await fetch(`https://api.figma.com/v1/files/${key.trim()}/components`, {
+        headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN }
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const components = data.meta?.components || [];
+      const matches = components.filter(c =>
+        c.name.toLowerCase().includes(query.toLowerCase())
+      );
+      for (const match of matches.slice(0, 3)) {
+        let imageUrl = null;
+        try { imageUrl = await getFigmaImage(key.trim(), match.node_id); } catch { /* no image */ }
+        results.push({
+          name: match.name,
+          description: match.description || '',
+          nodeId: match.node_id,
+          fileKey: key.trim(),
+          imageUrl
+        });
+      }
+    } catch { /* skip file */ }
+  }
+  return results;
+}
+
+// ─── Search Figma frames/screens with image URLs ───
+export async function searchFigmaFrames(query) {
+  const results = [];
+  const fileKeys = (process.env.FIGMA_FILE_KEYS || '').split(',').filter(Boolean);
+  for (const key of fileKeys) {
+    try {
+      const res = await fetch(`https://api.figma.com/v1/files/${key.trim()}`, {
+        headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN }
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const frames = [];
+      function findFrames(node) {
+        if (
+          (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') &&
+          node.name.toLowerCase().includes(query.toLowerCase())
+        ) {
+          frames.push({ name: node.name, nodeId: node.id });
+        }
+        if (node.children) node.children.forEach(child => findFrames(child));
+      }
+      if (data.document) findFrames(data.document);
+      for (const frame of frames.slice(0, 3)) {
+        let imageUrl = null;
+        try { imageUrl = await getFigmaImage(key.trim(), frame.nodeId); } catch { /* no image */ }
+        results.push({ ...frame, fileKey: key.trim(), imageUrl });
+      }
+    } catch { /* skip file */ }
+  }
+  return results;
+}
+
+// ─── Detect changes between live Figma and published GitHub data ───
+export async function detectChanges() {
+  // Gather live components from Figma
+  const fileKeys = (process.env.FIGMA_FILE_KEYS || '').split(',').filter(Boolean);
+  const liveByName = {};
+  for (const key of fileKeys) {
+    try {
+      const res = await fetch(`https://api.figma.com/v1/files/${key.trim()}/components`, {
+        headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN }
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const c of (data.meta?.components || [])) {
+        // Use the component set name (root before '/') as the canonical name
+        const rootName = c.containing_frame?.name || c.name.split('/')[0];
+        if (!liveByName[rootName]) liveByName[rootName] = [];
+        liveByName[rootName].push(c.name);
+      }
+    } catch { /* skip */ }
+  }
+
+  // Gather published components from GitHub
+  const publishedByName = {};
+  if (process.env.GITHUB_OWNER && process.env.GITHUB_DS_REPO) {
+    try {
+      const url = `https://raw.githubusercontent.com/${process.env.GITHUB_OWNER}/${process.env.GITHUB_DS_REPO}/main/data/components.json`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = JSON.parse(await res.text());
+        for (const c of (data.components || [])) {
+          publishedByName[c.name] = c.variants || [];
+        }
+      }
+    } catch { /* skip */ }
+  }
+
+  if (Object.keys(liveByName).length === 0 && Object.keys(publishedByName).length === 0) {
+    return 'Could not retrieve data from Figma or GitHub to compare. Check your API tokens and repo config.';
+  }
+
+  const liveNames = new Set(Object.keys(liveByName));
+  const publishedNames = new Set(Object.keys(publishedByName));
+
+  const added = [...liveNames].filter(n => !publishedNames.has(n));
+  const removed = [...publishedNames].filter(n => !liveNames.has(n));
+  const modified = [...liveNames].filter(n => {
+    if (!publishedNames.has(n)) return false;
+    const liveVariantCount = liveByName[n].length;
+    const publishedVariantCount = publishedByName[n].length;
+    return liveVariantCount !== publishedVariantCount;
+  });
+
+  if (added.length === 0 && removed.length === 0 && modified.length === 0) {
+    return 'No changes detected between the live Figma design system and the published GitHub data.';
+  }
+
+  let summary = '*Design System Changes Detected:*';
+  if (added.length > 0) summary += `\n\n*New components (${added.length}):* ${added.join(', ')}`;
+  if (removed.length > 0) summary += `\n\n*Removed components (${removed.length}):* ${removed.join(', ')}`;
+  if (modified.length > 0) {
+    const detail = modified.map(n =>
+      `${n} (live: ${liveByName[n].length} variants, published: ${publishedByName[n].length} variants)`
+    ).join(', ');
+    summary += `\n\n*Modified components (${modified.length}):* ${detail}`;
+  }
+  return summary;
+}

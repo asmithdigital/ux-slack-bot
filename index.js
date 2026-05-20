@@ -2,14 +2,47 @@
 import 'dotenv/config';
 import { App } from '@slack/bolt';
 import express from 'express';
-import { askClaude } from './src/claude.js';
-import { searchFigma, searchFigJam, searchMiro, searchGitHub } from './src/search.js';
+import { askClaude, generatePrompt } from './src/claude.js';
+import {
+  searchFigma, searchFigJam, searchMiro, searchGitHub,
+  searchFigmaComponents, searchFigmaFrames, detectChanges
+} from './src/search.js';
 
 const slackApp = new App({
   token: process.env.SLACK_BOT_TOKEN,
   appToken: process.env.SLACK_APP_TOKEN,
   socketMode: true
 });
+
+const VISUAL_TRIGGERS = ['show me', 'what does', 'look like', 'screenshot', 'image of', 'visual'];
+const PROMPT_TRIGGERS = ['i need to', 'how should i', 'help me design', 'prepare a brief', 'what should i do about', 'draft acceptance criteria', 'generate a brief'];
+const CHANGE_TRIGGERS = ['what changed', 'any updates', "what's new", 'whats new', 'what is new'];
+
+const isVisualQuery = q => VISUAL_TRIGGERS.some(t => q.toLowerCase().includes(t));
+const isPromptQuery = q => PROMPT_TRIGGERS.some(t => q.toLowerCase().includes(t));
+const isChangeQuery = q => CHANGE_TRIGGERS.some(t => q.toLowerCase().includes(t));
+
+async function postImageBlocks(say, event, results) {
+  const blocks = [];
+  for (const r of results) {
+    if (!r.imageUrl) continue;
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*${r.name}*${r.description ? '\n' + r.description : ''}`
+      }
+    });
+    blocks.push({
+      type: 'image',
+      image_url: r.imageUrl,
+      alt_text: `${r.name} from Figma`
+    });
+  }
+  if (blocks.length === 0) return false;
+  await say({ blocks, text: `Visual results for: ${results.map(r => r.name).join(', ')}`, thread_ts: event.ts });
+  return true;
+}
 
 slackApp.event('app_mention', async ({ event, say }) => {
   const question = event.text.replace(/<@[^>]+>/g, '').trim();
@@ -20,6 +53,14 @@ slackApp.event('app_mention', async ({ event, say }) => {
   });
 
   try {
+    // ── Change detection ──
+    if (isChangeQuery(question)) {
+      const changes = await detectChanges();
+      await say({ text: changes, thread_ts: event.ts });
+      return;
+    }
+
+    // ── Run all text searches in parallel ──
     const [figmaCtx, figjamCtx, miroCtx, githubCtx] = await Promise.all([
       searchFigma(question),
       searchFigJam(question),
@@ -34,8 +75,55 @@ slackApp.event('app_mention', async ({ event, say }) => {
       `DESIGN SYSTEM & JOURNEY DATA (GitHub):\n${githubCtx}`
     ].join('\n\n');
 
+    // ── Visual queries — fetch images and post as Block Kit ──
+    if (isVisualQuery(question)) {
+      const [components, frames] = await Promise.all([
+        searchFigmaComponents(question).catch(() => []),
+        searchFigmaFrames(question).catch(() => [])
+      ]);
+      const allVisual = [...components, ...frames];
+      const posted = await postImageBlocks(say, event, allVisual);
+      if (!posted) {
+        // No images found — fall back to text answer
+        const answer = await askClaude(question, context);
+        await say({ text: answer, thread_ts: event.ts });
+      }
+      return;
+    }
+
+    // ── Prompt generation queries ──
+    if (isPromptQuery(question)) {
+      let components = [], frames = [];
+      try {
+        [components, frames] = await Promise.all([
+          searchFigmaComponents(question).catch(() => []),
+          searchFigmaFrames(question).catch(() => [])
+        ]);
+      } catch { /* non-fatal */ }
+
+      let response;
+      try {
+        response = await generatePrompt(question, context, { components, frames });
+      } catch {
+        // Fall back to regular answer if prompt generation fails
+        const answer = await askClaude(question, context);
+        await say({ text: answer, thread_ts: event.ts });
+        return;
+      }
+
+      const summaryMatch = response.match(/SUMMARY:\s*([\s\S]*?)(?=PROMPT FOR CLAUDE DESKTOP:|$)/i);
+      const promptMatch = response.match(/PROMPT FOR CLAUDE DESKTOP:\s*([\s\S]*)/i);
+      const summary = summaryMatch?.[1]?.trim() || '';
+      const prompt = promptMatch?.[1]?.trim() || response;
+      const formatted = `${summary ? summary + '\n\n' : ''}*Prompt for Claude Desktop:*\n\`\`\`\n${prompt}\n\`\`\``;
+      await say({ text: formatted, thread_ts: event.ts });
+      return;
+    }
+
+    // ── Regular question — synthesise answer from all sources ──
     const answer = await askClaude(question, context);
     await say({ text: answer, thread_ts: event.ts });
+
   } catch (err) {
     await say({
       text: `Sorry, something went wrong: ${err.message}`,
