@@ -186,15 +186,8 @@ export async function searchGitHub(query) {
               if (!jRes.ok) continue;
               try {
                 const j = JSON.parse(await jRes.text());
-                content += `\n\nJourney: ${j.name} (${j.status})`;
-                content += `\nSummary: ${j.summary || 'No summary'}`;
-                for (const s of (j.stages || [])) {
-                  content += `\n  Stage: ${s.name} — Emotion: ${s.emotions?.label} (${s.emotions?.score}/5)`;
-                  content += ` — Pain points: ${(s.painPoints || []).join('; ')}`;
-                }
-                for (const ins of (j.insights || [])) {
-                  content += `\n  Insight [${ins.severity}]: ${ins.text}`;
-                }
+                content += `\n\nJourney: ${j.name} (${j.status})\n`;
+                content += JSON.stringify(j, null, 2);
               } catch { /* skip */ }
             }
           } catch { /* skip */ }
