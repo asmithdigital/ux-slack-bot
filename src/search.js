@@ -158,11 +158,12 @@ export async function searchGitHub(query) {
             content += data.foundations.map(f => `${f.title}: ${f.content}`).join('\n');
           }
           if (data.hierarchy) {
-            for (const j of data.hierarchy) {
-              content += `Journey: ${j.name} (${j.level})`;
-              if (j.children) content += ` — Sub-journeys: ${j.children.map(c => c.name).join(', ')}`;
-              content += '\n';
+            function displayHierarchy(node, depth) {
+              const indent = '  '.repeat(depth);
+              content += `${indent}Journey: ${node.name} (${node.level})\n`;
+              for (const child of (node.children || [])) displayHierarchy(child, depth + 1);
             }
+            for (const j of data.hierarchy) displayHierarchy(j, 0);
           }
         } catch { content += `\n${source.name} — ${filePath}: (not yet populated)`; }
       }
@@ -174,10 +175,11 @@ export async function searchGitHub(query) {
           try {
             const idx = JSON.parse(await idxRes.text());
             const ids = [];
-            for (const top of (idx.hierarchy || [])) {
-              ids.push(top.id);
-              for (const ch of (top.children || [])) ids.push(ch.id);
+            function collectIds(node) {
+              if (node.id) ids.push(node.id);
+              for (const child of (node.children || [])) collectIds(child);
             }
+            for (const top of (idx.hierarchy || [])) collectIds(top);
             for (const id of ids.slice(0, 10)) {
               const jUrl = `https://raw.githubusercontent.com/${source.owner}/${source.repo}/main/public/data/journeys/${id}.json`;
               const jRes = await fetch(jUrl);
