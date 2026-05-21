@@ -22,30 +22,18 @@ const isVisualQuery = q => VISUAL_TRIGGERS.some(t => q.toLowerCase().includes(t)
 const isPromptQuery = q => PROMPT_TRIGGERS.some(t => q.toLowerCase().includes(t));
 const isChangeQuery = q => CHANGE_TRIGGERS.some(t => q.toLowerCase().includes(t));
 
-async function postImageBlocks(say, event, results, figmaRateLimited = false, total = 0) {
+async function postImageBlocks(say, event, results) {
   const blocks = [];
   for (const r of results) {
     if (!r.imageUrl) continue;
     blocks.push({
       type: 'section',
-      text: { type: 'mrkdwn', text: `*${r.name}*${r.description ? '\n' + r.description : ''}` }
+      text: { type: 'mrkdwn', text: `*${r.name}*` }
     });
     blocks.push({ type: 'image', image_url: r.imageUrl, alt_text: `${r.name} from Figma` });
   }
-  if (figmaRateLimited) {
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: ':warning: *Figma rate limit reached* — visual previews are temporarily unavailable on the free plan. Try again later.' }
-    });
-  }
-  if (total > 6) {
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: `There are ${total - 6} more components. Say *show me more* to see the next batch.` }
-    });
-  }
   if (blocks.length === 0) return;
-  await say({ blocks, text: `Visual results for: ${results.map(r => r.name).join(', ')}`, thread_ts: event.ts });
+  await say({ blocks, text: `Figma visuals`, thread_ts: event.ts });
 }
 
 slackApp.event('app_mention', async ({ event, say }) => {
@@ -79,16 +67,18 @@ slackApp.event('app_mention', async ({ event, say }) => {
       `DESIGN SYSTEM & JOURNEY DATA (GitHub):\n${githubCtx}`
     ].join('\n\n');
 
-    // ── Visual queries — fetch images and post as Block Kit ──
+    // ── Visual queries — fetch images, pass flags to Claude, post images after ──
     if (isVisualQuery(question)) {
       const { results, figmaRateLimited, total } = await searchFigmaVisuals(question).catch(() => ({ results: [], figmaRateLimited: false, total: 0 }));
-      const hasImages = results.some(r => r.imageUrl);
-      if (hasImages || figmaRateLimited) {
-        await postImageBlocks(say, event, results, figmaRateLimited, total);
-      }
-      if (!hasImages) {
-        const answer = await askClaude(question, context);
-        await say({ text: answer, thread_ts: event.ts });
+      const remaining = total - results.length;
+      const visualHints = [];
+      if (figmaRateLimited) visualHints.push('[SYSTEM: Figma was rate limited — no images could be fetched. Per the visual queries rules, show the :warning: warning inline below each component description, not as a separate message.]');
+      if (remaining > 0) visualHints.push(`[SYSTEM: ${remaining} more matching components exist beyond the 6 shown. Include the "There are ${remaining} more components..." message at the end of your response.]`);
+      const visualCtx = visualHints.length ? '\n\n' + visualHints.join('\n') : '';
+      const answer = await askClaude(question, context + visualCtx);
+      await say({ text: answer, thread_ts: event.ts });
+      if (results.some(r => r.imageUrl)) {
+        await postImageBlocks(say, event, results);
       }
       return;
     }

@@ -31,19 +31,24 @@ honestly and suggest what data source might have the answer.
 - Do not use horizontal rules (---). Use a blank line between sections instead.
 
 *Link formatting — always follow these:*
-- When including links, use Slack rich text link format: <URL|Display Text>. Never show raw URLs.
-- For design system component links, format as: <https://asmithdigital.github.io/design-system-site/components/{slug}|{product}: {component name}>
-  Example: <https://asmithdigital.github.io/design-system-site/components/raa-web-primary-button|RAA Web: Primary Button>
+- Never show raw URLs. Always use Slack rich text links: <URL|Display Text>
+- For design system component links, format as: <https://asmithdigital.github.io/design-system-site/components/{slug}|View in design system>
+  where slug is {product}-{component-name-slugified}, e.g. raa-web-primary-button
 - For journey links, format as: <https://asmithdigital.github.io/journey-management-site/journey/{id}|View {journey name} journey>
-  Example: <https://asmithdigital.github.io/journey-management-site/journey/claims|View Claims journey>
-- For the design system footer link, format as: <https://asmithdigital.github.io/design-system-site/|View full design system>
-- For the journey map footer link, format as: <https://asmithdigital.github.io/journey-management-site/|View full journey map>
+- For the design system footer, format as: <https://asmithdigital.github.io/design-system-site/|View full design system>
+- For the journey map footer, format as: <https://asmithdigital.github.io/journey-management-site/|View full journey map>
 
-*Figma visuals — always follow these:*
-- When the user asks to "show" a component or asks for visuals, attempt to show Figma images if available.
-- If Figma images are unavailable (rate limited), show an inline warning formatted as: :warning: *Figma rate limit reached* — visual previews are temporarily unavailable on the free plan. Try again later.
-- Always include the component link below the warning so the user can view the visual preview in the design system site.
-- Maximum 6 images per response. If there are more than 6 components to show, display the first 6 and add: "There are {N} more components. Say *show me more* to see the next batch."`,
+*Visual queries — always follow these:*
+- When the user asks to "show" a component or asks for visuals, ALWAYS include the full text description first (name, status, description, variants as bullet points).
+- Below each component's text description, the system will attempt to show a Figma visual. If the visual fails due to rate limiting, show this warning on its own line directly below that component's description: :warning: _Figma visual unavailable — rate limit reached on free plan. Try again later._
+- Below the warning (or below the visual if it loaded), show the component link: <URL|View in design system>
+- Do NOT show the rate limit warning as the first message or as a separate message. It must appear below each individual component's description.
+- Maximum 6 component images per response. If the query would return more than 6 components with visuals, show the first 6 and add at the end: "There are {N} more components. Say *show me more* to see the next batch. :warning: _Requesting many visuals uses Figma API credits quickly._"
+- Do NOT repeat the component name as the link text. The link text should say "View in design system", not the component name again.
+
+*Figma rate limiting — always follow this:*
+- If Figma visuals were unavailable due to rate limiting, add at the end of the full response (not at the top):
+  _Visual previews from Figma are temporarily unavailable due to rate limits on the free plan. You can view component visuals using the design system links above._`,
     messages: [{
       role: 'user',
       content: `Context from design files, boards, and published data:\n\n${context}\n\nQuestion: ${question}`

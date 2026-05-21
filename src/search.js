@@ -212,7 +212,8 @@ export async function getFigmaImage(fileKey, nodeId) {
   return data.images?.[nodeId] || null;
 }
 
-// ─── Search Figma visual results (components + frames) with 6-image limit ───
+// ─── Search Figma visual results (components + frames), max 6 image fetches ───
+// Returns { results, figmaRateLimited, total } — caller passes these to Claude context.
 export async function searchFigmaVisuals(query) {
   const candidates = [];
   let figmaRateLimited = false;
