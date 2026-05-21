@@ -1,5 +1,9 @@
 // src/search.js
 
+class FigmaRateLimitError extends Error {
+  constructor() { super('Figma rate limit reached'); this.name = 'FigmaRateLimitError'; }
+}
+
 // ─── Figma fetch with 429 retry ───
 async function figmaFetch(url) {
   const opts = { headers: { 'X-Figma-Token': process.env.FIGMA_TOKEN } };
@@ -7,9 +11,7 @@ async function figmaFetch(url) {
   if (res.status === 429) {
     await new Promise(r => setTimeout(r, 5000));
     res = await fetch(url, opts);
-    if (res.status === 429) {
-      throw new Error('Figma is temporarily rate limited — please try again in a moment.');
-    }
+    if (res.status === 429) throw new FigmaRateLimitError();
   }
   return res;
 }
@@ -208,6 +210,63 @@ export async function getFigmaImage(fileKey, nodeId) {
   if (!res.ok) throw new Error(`Figma image API error: ${res.status}`);
   const data = await res.json();
   return data.images?.[nodeId] || null;
+}
+
+// ─── Search Figma visual results (components + frames) with 6-image limit ───
+export async function searchFigmaVisuals(query) {
+  const candidates = [];
+  let figmaRateLimited = false;
+  const fileKeys = (process.env.FIGMA_FILE_KEYS || '').split(',').filter(Boolean);
+
+  for (const key of fileKeys) {
+    try {
+      const res = await figmaFetch(`https://api.figma.com/v1/files/${key.trim()}/components`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const c of (data.meta?.components || [])) {
+        if (c.name.toLowerCase().includes(query.toLowerCase())) {
+          candidates.push({ name: c.name, description: c.description || '', nodeId: c.node_id, fileKey: key.trim() });
+        }
+      }
+    } catch (e) {
+      if (e instanceof FigmaRateLimitError) figmaRateLimited = true;
+    }
+  }
+
+  for (const key of fileKeys) {
+    try {
+      const res = await figmaFetch(`https://api.figma.com/v1/files/${key.trim()}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const found = [];
+      function scan(node) {
+        if (
+          (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') &&
+          node.name.toLowerCase().includes(query.toLowerCase())
+        ) found.push({ name: node.name, description: '', nodeId: node.id, fileKey: key.trim() });
+        if (node.children) node.children.forEach(scan);
+      }
+      if (data.document) scan(data.document);
+      candidates.push(...found);
+    } catch (e) {
+      if (e instanceof FigmaRateLimitError) figmaRateLimited = true;
+    }
+  }
+
+  const total = candidates.length;
+  const results = [];
+
+  for (const candidate of candidates.slice(0, 6)) {
+    let imageUrl = null;
+    try {
+      imageUrl = await getFigmaImage(candidate.fileKey, candidate.nodeId);
+    } catch (e) {
+      if (e instanceof FigmaRateLimitError) figmaRateLimited = true;
+    }
+    results.push({ ...candidate, imageUrl });
+  }
+
+  return { results, figmaRateLimited, total };
 }
 
 // ─── Search Figma published components with image URLs ───

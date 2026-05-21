@@ -5,7 +5,7 @@ import express from 'express';
 import { askClaude, generatePrompt } from './src/claude.js';
 import {
   searchFigma, searchFigJam, searchMiro, searchGitHub,
-  searchFigmaComponents, searchFigmaFrames, detectChanges
+  searchFigmaVisuals, searchFigmaComponents, searchFigmaFrames, detectChanges
 } from './src/search.js';
 
 const slackApp = new App({
@@ -22,26 +22,30 @@ const isVisualQuery = q => VISUAL_TRIGGERS.some(t => q.toLowerCase().includes(t)
 const isPromptQuery = q => PROMPT_TRIGGERS.some(t => q.toLowerCase().includes(t));
 const isChangeQuery = q => CHANGE_TRIGGERS.some(t => q.toLowerCase().includes(t));
 
-async function postImageBlocks(say, event, results) {
+async function postImageBlocks(say, event, results, figmaRateLimited = false, total = 0) {
   const blocks = [];
   for (const r of results) {
     if (!r.imageUrl) continue;
     blocks.push({
       type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*${r.name}*${r.description ? '\n' + r.description : ''}`
-      }
+      text: { type: 'mrkdwn', text: `*${r.name}*${r.description ? '\n' + r.description : ''}` }
     });
+    blocks.push({ type: 'image', image_url: r.imageUrl, alt_text: `${r.name} from Figma` });
+  }
+  if (figmaRateLimited) {
     blocks.push({
-      type: 'image',
-      image_url: r.imageUrl,
-      alt_text: `${r.name} from Figma`
+      type: 'section',
+      text: { type: 'mrkdwn', text: ':warning: *Figma rate limit reached* — visual previews are temporarily unavailable on the free plan. Try again later.' }
     });
   }
-  if (blocks.length === 0) return false;
+  if (total > 6) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `There are ${total - 6} more components. Say *show me more* to see the next batch.` }
+    });
+  }
+  if (blocks.length === 0) return;
   await say({ blocks, text: `Visual results for: ${results.map(r => r.name).join(', ')}`, thread_ts: event.ts });
-  return true;
 }
 
 slackApp.event('app_mention', async ({ event, say }) => {
@@ -77,14 +81,12 @@ slackApp.event('app_mention', async ({ event, say }) => {
 
     // ── Visual queries — fetch images and post as Block Kit ──
     if (isVisualQuery(question)) {
-      const [components, frames] = await Promise.all([
-        searchFigmaComponents(question).catch(() => []),
-        searchFigmaFrames(question).catch(() => [])
-      ]);
-      const allVisual = [...components, ...frames];
-      const posted = await postImageBlocks(say, event, allVisual);
-      if (!posted) {
-        // No images found — fall back to text answer
+      const { results, figmaRateLimited, total } = await searchFigmaVisuals(question).catch(() => ({ results: [], figmaRateLimited: false, total: 0 }));
+      const hasImages = results.some(r => r.imageUrl);
+      if (hasImages || figmaRateLimited) {
+        await postImageBlocks(say, event, results, figmaRateLimited, total);
+      }
+      if (!hasImages) {
         const answer = await askClaude(question, context);
         await say({ text: answer, thread_ts: event.ts });
       }

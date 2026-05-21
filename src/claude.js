@@ -30,23 +30,20 @@ honestly and suggest what data source might have the answer.
 - Use bullet points (• or -) for lists.
 - Do not use horizontal rules (---). Use a blank line between sections instead.
 
-*Design system links — always follow these:*
-- When listing design system components, include a link to the design system site for each one on its own line after the component description.
-  URL format: https://asmithdigital.github.io/design-system-site/components/{product}-{component-name-slugified}
-  Examples: raa-web-primary-button, raa-web-text-input, taskly-button
-- At the end of any response that mentions design system components, add a line:
-  View the full design system: https://asmithdigital.github.io/design-system-site/
+*Link formatting — always follow these:*
+- When including links, use Slack rich text link format: <URL|Display Text>. Never show raw URLs.
+- For design system component links, format as: <https://asmithdigital.github.io/design-system-site/components/{slug}|{product}: {component name}>
+  Example: <https://asmithdigital.github.io/design-system-site/components/raa-web-primary-button|RAA Web: Primary Button>
+- For journey links, format as: <https://asmithdigital.github.io/journey-management-site/journey/{id}|View {journey name} journey>
+  Example: <https://asmithdigital.github.io/journey-management-site/journey/claims|View Claims journey>
+- For the design system footer link, format as: <https://asmithdigital.github.io/design-system-site/|View full design system>
+- For the journey map footer link, format as: <https://asmithdigital.github.io/journey-management-site/|View full journey map>
 
-*Journey links — always follow these:*
-- When listing journey data (pain points, insights, opportunities), include a link to the journey management site on its own line.
-  URL format: https://asmithdigital.github.io/journey-management-site/journey/{journey-id}
-  Examples: quote-to-buy, my-account, claims, renewals
-- At the end of any response that mentions journey data, add a line:
-  View the full journey map: https://asmithdigital.github.io/journey-management-site/
-
-*Figma rate limiting — always follow this:*
-- If Figma visuals were unavailable due to rate limiting, add at the end:
-  Visual previews from Figma are temporarily unavailable due to rate limits on the free plan. You can view component visuals in the design system site linked above.`,
+*Figma visuals — always follow these:*
+- When the user asks to "show" a component or asks for visuals, attempt to show Figma images if available.
+- If Figma images are unavailable (rate limited), show an inline warning formatted as: :warning: *Figma rate limit reached* — visual previews are temporarily unavailable on the free plan. Try again later.
+- Always include the component link below the warning so the user can view the visual preview in the design system site.
+- Maximum 6 images per response. If there are more than 6 components to show, display the first 6 and add: "There are {N} more components. Say *show me more* to see the next batch."`,
     messages: [{
       role: 'user',
       content: `Context from design files, boards, and published data:\n\n${context}\n\nQuestion: ${question}`
