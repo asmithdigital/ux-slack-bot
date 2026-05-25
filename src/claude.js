@@ -3,10 +3,19 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-export async function askClaude(question, context) {
+export async function askClaude(question, context, conversationHistory = null) {
+  const userContent = `Context from design files, boards, and published data:\n\n${context}\n\nQuestion: ${question}`;
+
+  const messages = conversationHistory && conversationHistory.length > 0
+    ? [
+        ...conversationHistory.slice(0, -1),
+        { role: 'user', content: userContent }
+      ]
+    : [{ role: 'user', content: userContent }];
+
   const res = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 1000,
+    max_tokens: 4096,
     system: `You are a UX research and design system assistant for an experience
 design team. You have access to five data sources:
 1. Figma Design files — component names, page structure, design system assets
@@ -60,10 +69,7 @@ what data source might have the answer.
 *Figma rate limiting — always follow this:*
 - If Figma visuals were unavailable due to rate limiting, add at the end of the full response (not at the top):
   _Visual previews from Figma are temporarily unavailable due to rate limits on the free plan. You can view component visuals using the design system links above._`,
-    messages: [{
-      role: 'user',
-      content: `Context from design files, boards, and published data:\n\n${context}\n\nQuestion: ${question}`
-    }]
+    messages
   });
   return res.content[0].text;
 }

@@ -65,6 +65,23 @@ slackApp.event('app_mention', async ({ event, say }) => {
       return;
     }
 
+    // ── Fetch thread history if this is a reply in an existing thread ──
+    let conversationHistory = null;
+    if (event.thread_ts && event.thread_ts !== event.ts) {
+      try {
+        const threadResult = await slackApp.client.conversations.replies({
+          channel: event.channel,
+          ts: event.thread_ts,
+          limit: 20
+        });
+        const msgs = (threadResult.messages || []).slice(0, -1); // exclude the current message
+        conversationHistory = msgs.map(m => ({
+          role: m.bot_id ? 'assistant' : 'user',
+          content: m.text || ''
+        }));
+      } catch { /* non-fatal — proceed without history */ }
+    }
+
     // ── Run all text searches in parallel ──
     const personaNeeded = isPersonaQuery(question);
     const [figmaCtx, figjamCtx, miroCtx, githubCtx, personaCtx] = await Promise.all([
@@ -107,7 +124,7 @@ slackApp.event('app_mention', async ({ event, say }) => {
       if (figmaRateLimited) visualHints.push('[SYSTEM: Figma was rate limited — no images could be fetched. Per the visual queries rules, show the :warning: warning inline below each component description, not as a separate message.]');
       if (remaining > 0) visualHints.push(`[SYSTEM: ${remaining} more matching components exist beyond the 6 shown. Include the "There are ${remaining} more components..." message at the end of your response.]`);
       const visualCtx = visualHints.length ? '\n\n' + visualHints.join('\n') : '';
-      const answer = await askClaude(question, context + visualCtx);
+      const answer = await askClaude(question, context + visualCtx, conversationHistory);
       await say({ text: answer, thread_ts: event.ts });
       if (results.some(r => r.imageUrl)) {
         await postImageBlocks(say, event, results);
@@ -130,7 +147,7 @@ slackApp.event('app_mention', async ({ event, say }) => {
         response = await generatePrompt(question, context, { components, frames });
       } catch {
         // Fall back to regular answer if prompt generation fails
-        const answer = await askClaude(question, context);
+        const answer = await askClaude(question, context, conversationHistory);
         await say({ text: answer, thread_ts: event.ts });
         return;
       }
@@ -145,7 +162,7 @@ slackApp.event('app_mention', async ({ event, say }) => {
     }
 
     // ── Regular question — synthesise answer from all sources ──
-    const answer = await askClaude(question, context);
+    const answer = await askClaude(question, context, conversationHistory);
     await say({ text: answer, thread_ts: event.ts });
 
   } catch (err) {
