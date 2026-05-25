@@ -329,6 +329,69 @@ export async function searchFigmaFrames(query) {
   return results;
 }
 
+// ─── Search personas from journey-management-site repo ───
+const _personaCache = { raw: null, ts: 0 };
+const PERSONA_TTL = 60 * 60 * 1000;
+
+async function fetchPersonaRaw() {
+  const owner = process.env.GITHUB_OWNER;
+  const repo = process.env.GITHUB_JM_REPO;
+  if (!owner || !repo) return null;
+  const paths = [
+    'src/data/Personas.jsx',
+    'src/Personas.jsx',
+    'src/components/Personas.jsx',
+    'src/data/personas.json',
+  ];
+  for (const p of paths) {
+    const res = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/main/${p}`);
+    if (res.ok) return await res.text();
+  }
+  return null;
+}
+
+function extractPersonaContext(raw, query) {
+  const names = [
+    'Sarah Mitchell', 'James Cooper', 'Priya Sharma',
+    'Tom & Lisa Chen', 'Maria Rossi', 'Alex Nguyen'
+  ];
+  const lower = query.toLowerCase();
+  const matched = names.filter(n =>
+    lower.includes(n.toLowerCase()) ||
+    n.toLowerCase().split(' ').some(part => part.length > 3 && lower.includes(part))
+  );
+
+  if (matched.length > 0) {
+    const chunks = [];
+    for (const name of matched) {
+      const idx = raw.indexOf(name);
+      if (idx === -1) continue;
+      const start = Math.max(0, idx - 500);
+      const end = Math.min(raw.length, idx + 2500);
+      chunks.push(raw.slice(start, end));
+    }
+    if (chunks.length > 0) return `Persona data:\n${chunks.join('\n\n---\n\n')}`;
+  }
+
+  const arrayStart = raw.indexOf('const PERSONAS');
+  if (arrayStart !== -1) return `PERSONAS data:\n${raw.slice(arrayStart, arrayStart + 8000)}`;
+  return `Persona data:\n${raw.slice(0, 6000)}`;
+}
+
+export async function searchPersonas(query) {
+  try {
+    const now = Date.now();
+    if (!_personaCache.raw || (now - _personaCache.ts) >= PERSONA_TTL) {
+      _personaCache.raw = await fetchPersonaRaw();
+      _personaCache.ts = now;
+    }
+    if (!_personaCache.raw) return 'Persona data not found in the journey-management-site repo.';
+    return extractPersonaContext(_personaCache.raw, query);
+  } catch (e) {
+    return `Persona search error: ${e.message}`;
+  }
+}
+
 // ─── Detect changes between live Figma and published GitHub data ───
 export async function detectChanges() {
   // Gather live components from Figma

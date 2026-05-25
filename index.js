@@ -4,7 +4,7 @@ import { App } from '@slack/bolt';
 import express from 'express';
 import { askClaude, generatePrompt } from './src/claude.js';
 import {
-  searchFigma, searchFigJam, searchMiro, searchGitHub,
+  searchFigma, searchFigJam, searchMiro, searchGitHub, searchPersonas,
   searchFigmaVisuals, searchFigmaComponents, searchFigmaFrames, detectChanges
 } from './src/search.js';
 
@@ -17,10 +17,23 @@ const slackApp = new App({
 const VISUAL_TRIGGERS = ['show me', 'what does', 'look like', 'screenshot', 'image of', 'visual'];
 const PROMPT_TRIGGERS = ['i need to', 'how should i', 'help me design', 'prepare a brief', 'what should i do about', 'draft acceptance criteria', 'generate a brief'];
 const CHANGE_TRIGGERS = ['what changed', 'any updates', "what's new", 'whats new', 'what is new'];
+const PERSONA_NAMES = [
+  'sarah mitchell', 'james cooper', 'priya sharma',
+  'tom & lisa chen', 'tom chen', 'lisa chen', 'maria rossi', 'alex nguyen'
+];
+const PERSONA_TRIGGERS = [
+  'persona', 'customer type', 'user profile', 'user type',
+  'user need', 'user goal', 'user frustrat',
+  'customer need', 'customer goal', 'customer frustrat'
+];
 
 const isVisualQuery = q => VISUAL_TRIGGERS.some(t => q.toLowerCase().includes(t));
 const isPromptQuery = q => PROMPT_TRIGGERS.some(t => q.toLowerCase().includes(t));
 const isChangeQuery = q => CHANGE_TRIGGERS.some(t => q.toLowerCase().includes(t));
+const isPersonaQuery = q => {
+  const lower = q.toLowerCase();
+  return PERSONA_TRIGGERS.some(t => lower.includes(t)) || PERSONA_NAMES.some(n => lower.includes(n));
+};
 
 async function postImageBlocks(say, event, results) {
   const blocks = [];
@@ -53,19 +66,38 @@ slackApp.event('app_mention', async ({ event, say }) => {
     }
 
     // ── Run all text searches in parallel ──
-    const [figmaCtx, figjamCtx, miroCtx, githubCtx] = await Promise.all([
+    const personaNeeded = isPersonaQuery(question);
+    const [figmaCtx, figjamCtx, miroCtx, githubCtx, personaCtx] = await Promise.all([
       searchFigma(question),
       searchFigJam(question),
       searchMiro(question),
-      searchGitHub(question)
+      searchGitHub(question),
+      personaNeeded ? searchPersonas(question) : Promise.resolve(null)
     ]);
 
-    const context = [
+    const contextParts = [
       `FIGMA DESIGN FILES:\n${figmaCtx}`,
       `FIGJAM BOARDS:\n${figjamCtx}`,
       `MIRO BOARDS:\n${miroCtx}`,
       `DESIGN SYSTEM & JOURNEY DATA (GitHub):\n${githubCtx}`
-    ].join('\n\n');
+    ];
+
+    if (personaCtx) {
+      contextParts.push(`PERSONA DATA:\n${personaCtx}`);
+      const lower = question.toLowerCase();
+      const isCrossQuery = (
+        lower.includes('journey') || lower.includes('feel') ||
+        lower.includes('experience') || lower.includes('stage') ||
+        lower.includes('emotion') || lower.includes('how does') || lower.includes('how do')
+      );
+      contextParts.push(
+        isCrossQuery
+          ? '[SYSTEM: This question is about a persona AND a journey. Combine the persona\'s personaEmotions scores at each journey stage with their specific frustrations, and weave in the relevant opportunities from the journey data. Answer from the persona\'s lived perspective — use their name, reference their life situation, and ground every point in their specific attributes from the PERSONA DATA above.]'
+          : '[SYSTEM: This question is about a persona. Answer from the persona\'s perspective, referencing their specific goals, frustrations, behaviours, preferred channel, digital confidence, family status, and linked journeys from the PERSONA DATA above. Use their name and make the answer personal and specific.]'
+      );
+    }
+
+    const context = contextParts.join('\n\n');
 
     // ── Visual queries — fetch images, pass flags to Claude, post images after ──
     if (isVisualQuery(question)) {
