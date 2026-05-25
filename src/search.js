@@ -339,6 +339,8 @@ async function fetchPersonaRaw() {
   if (!owner || !repo) return null;
   const paths = [
     'src/data/Personas.jsx',
+    'src/pages/Personas.jsx',
+    'src/data/personas.js',
     'src/Personas.jsx',
     'src/components/Personas.jsx',
     'src/data/personas.json',
