@@ -338,12 +338,12 @@ async function fetchPersonaRaw() {
   const repo = process.env.GITHUB_JM_REPO;
   if (!owner || !repo) return null;
   const paths = [
-    'src/data/Personas.jsx',
-    'src/pages/Personas.jsx',
     'src/data/personas.js',
+    'src/data/Personas.jsx',
+    'src/data/personas.json',
+    'src/pages/Personas.jsx',
     'src/Personas.jsx',
     'src/components/Personas.jsx',
-    'src/data/personas.json',
   ];
   for (const p of paths) {
     const res = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/main/${p}`);
