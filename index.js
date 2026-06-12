@@ -5,7 +5,8 @@ import express from 'express';
 import { askClaude, generatePrompt } from './src/claude.js';
 import {
   searchFigma, searchFigJam, searchMiro, searchGitHub, searchPersonas,
-  searchFigmaVisuals, searchFigmaComponents, searchFigmaFrames, detectChanges
+  searchFigmaVisuals, searchFigmaComponents, searchFigmaFrames, detectChanges,
+  searchPrototypePlatform, searchJourneyManagement
 } from './src/search.js';
 
 const slackApp = new App({
@@ -84,19 +85,23 @@ slackApp.event('app_mention', async ({ event, say }) => {
 
     // ── Run all text searches in parallel ──
     const personaNeeded = isPersonaQuery(question);
-    const [figmaCtx, figjamCtx, miroCtx, githubCtx, personaCtx] = await Promise.all([
+    const [figmaCtx, figjamCtx, miroCtx, githubCtx, personaCtx, protoCtx, journeyCtx] = await Promise.all([
       searchFigma(question),
       searchFigJam(question),
       searchMiro(question),
       searchGitHub(question),
-      personaNeeded ? searchPersonas(question) : Promise.resolve(null)
+      personaNeeded ? searchPersonas(question) : Promise.resolve(null),
+      searchPrototypePlatform(question),
+      searchJourneyManagement(question)
     ]);
 
     const contextParts = [
       `FIGMA DESIGN FILES:\n${figmaCtx}`,
       `FIGJAM BOARDS:\n${figjamCtx}`,
       `MIRO BOARDS:\n${miroCtx}`,
-      `DESIGN SYSTEM & JOURNEY DATA (GitHub):\n${githubCtx}`
+      `DESIGN SYSTEM & JOURNEY DATA (GitHub):\n${githubCtx}`,
+      `PROTOTYPE PLATFORM:\n${protoCtx}`,
+      `JOURNEY MANAGEMENT:\n${journeyCtx}`
     ];
 
     if (personaCtx) {

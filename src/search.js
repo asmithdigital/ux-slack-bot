@@ -329,6 +329,154 @@ export async function searchFigmaFrames(query) {
   return results;
 }
 
+// ─── Search Prototype Platform ───
+export async function searchPrototypePlatform(query) {
+  try {
+    const res = await fetch(
+      'https://raw.githubusercontent.com/asmithdigital/raa-prototype-platform/main/data/prototypes.json'
+    );
+    if (!res.ok) return `Prototype platform data unavailable (${res.status}).`;
+    const data = await res.json();
+    const prototypes = data.prototypes || [];
+    if (prototypes.length === 0) return 'No prototypes found in the platform data.';
+
+    const PROTO_BASE = 'https://asmithdigital.github.io/raa-prototype-platform';
+    const DS_BASE = 'https://asmithdigital.github.io/design-system-site';
+    const protoLink = id => `${PROTO_BASE}/prototypes/${id}`;
+    const presentLink = s => {
+      const type = s.route?.startsWith('/app') ? 'app' : 'web';
+      return `${PROTO_BASE}/present/${type}/${s.id}`;
+    };
+    const compLink = name =>
+      `${DS_BASE}/components/${name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`;
+
+    const q = query.toLowerCase();
+
+    // "what prototypes exist" / "show me all prototypes"
+    if (q.includes('what prototypes exist') || q.includes('show me all prototypes') || q.includes('list prototypes')) {
+      let out = `PROTOTYPE PLATFORM — ${prototypes.length} prototypes:\n\n`;
+      for (const p of prototypes) {
+        out += `${p.name} | ${p.category} | ${p.status} | ${p.screens.length} screens\n`;
+        out += `Link: ${protoLink(p.id)}\n\n`;
+      }
+      return out;
+    }
+
+    // "what screens exist for [name]"
+    const screensForMatch = q.match(/what screens (?:exist |are there )?for (.+)/);
+    if (screensForMatch) {
+      const target = screensForMatch[1].trim();
+      const proto = prototypes.find(p =>
+        p.name.toLowerCase().includes(target) || p.id.toLowerCase().includes(target)
+      );
+      if (!proto) return `No prototype found matching "${target}".`;
+      let out = `${proto.name} — ${proto.screens.length} screens:\n\n`;
+      for (const s of [...proto.screens].sort((a, b) => a.order - b.order)) {
+        out += `${s.order}. ${s.name}\n`;
+        if (s.description) out += `   ${s.description}\n`;
+        out += `   Link: ${presentLink(s)}\n\n`;
+      }
+      return out;
+    }
+
+    // "what components does [screen] use"
+    const compForMatch = q.match(/what components (?:does |do )?(?:the |a |an )?(.+?) use/);
+    if (compForMatch) {
+      const target = compForMatch[1].trim();
+      for (const p of prototypes) {
+        for (const s of p.screens) {
+          if (s.name.toLowerCase().includes(target) || s.id.toLowerCase().includes(target)) {
+            let out = `${s.name} (from ${p.name}) — ${s.components.length} component(s):\n`;
+            for (const c of s.components) out += `- ${c}: ${compLink(c)}\n`;
+            return out;
+          }
+        }
+      }
+      return `No screen found matching "${compForMatch[1].trim()}".`;
+    }
+
+    // General keyword match — return matching prototypes/screens; fall back to brief overview
+    const keywords = q.split(/\s+/).filter(w => w.length > 2);
+    let out = 'PROTOTYPE PLATFORM DATA:\n\n';
+    let anyMatch = false;
+
+    for (const p of prototypes) {
+      const protoText = `${p.name} ${p.description || ''} ${p.category} ${p.status}`.toLowerCase();
+      const screenHits = p.screens.filter(s => {
+        const st = `${s.name} ${s.description || ''} ${s.components.join(' ')}`.toLowerCase();
+        return keywords.some(kw => st.includes(kw));
+      });
+      const protoHit = keywords.some(kw => protoText.includes(kw));
+
+      if (protoHit || screenHits.length > 0) {
+        anyMatch = true;
+        out += `Prototype: ${p.name} (${p.status}) — ${protoLink(p.id)}\n`;
+        out += `  Category: ${p.category} | ${p.screens.length} screens total\n`;
+        if (p.description) out += `  ${p.description}\n`;
+        for (const s of screenHits) {
+          out += `  Screen: ${s.order}. ${s.name} — ${presentLink(s)}\n`;
+          if (s.components.length) out += `    Components: ${s.components.join(', ')}\n`;
+        }
+        out += '\n';
+      }
+    }
+
+    if (!anyMatch) {
+      out = `PROTOTYPE PLATFORM — ${prototypes.length} prototype(s) available:\n`;
+      for (const p of prototypes) {
+        out += `${p.name} (${p.status}, ${p.screens.length} screens) — ${protoLink(p.id)}\n`;
+      }
+    }
+    return out;
+  } catch (e) {
+    return `Prototype platform search error: ${e.message}`;
+  }
+}
+
+// ─── Search Journey Management site ───
+export async function searchJourneyManagement(query) {
+  try {
+    const res = await fetch(
+      'https://raw.githubusercontent.com/asmithdigital/journey-management-site/main/public/data/journeys.json'
+    );
+    if (!res.ok) return `Journey management data unavailable (${res.status}).`;
+    const data = await res.json();
+    const journeys = data.journeys || [];
+    if (journeys.length === 0) return 'No journeys found in the journey management data.';
+
+    const q = query.toLowerCase();
+    const keywords = q.split(/\s+/).filter(w => w.length > 2);
+
+    const matched = journeys.filter(j => {
+      const text = [
+        j.name, j.description || '', j.category || '', j.status || '',
+        ...(j.touchpoints || []).map(t => `${t.name} ${t.description || ''}`)
+      ].join(' ').toLowerCase();
+      return keywords.some(kw => text.includes(kw));
+    });
+
+    const list = matched.length > 0 ? matched : journeys;
+    let out = `JOURNEY MANAGEMENT — ${list.length} journey(s)${matched.length > 0 ? ' matching query' : ' (all)'}:\n\n`;
+
+    for (const j of list) {
+      out += `Journey: ${j.name} | Status: ${j.status} | Category: ${j.category}\n`;
+      if (j.description) out += `  ${j.description}\n`;
+      if (j.touchpoints && j.touchpoints.length > 0) {
+        out += `  Touchpoints (${j.touchpoints.length}):\n`;
+        for (const t of j.touchpoints) {
+          out += `    - ${t.name} [${t.channel}]: ${t.description || ''}`;
+          if (t.prototypeScreenId) out += ` (prototype screen: ${t.prototypeScreenId})`;
+          out += '\n';
+        }
+      }
+      out += '\n';
+    }
+    return out;
+  } catch (e) {
+    return `Journey management search error: ${e.message}`;
+  }
+}
+
 // ─── Search personas from journey-management-site repo ───
 const _personaCache = { raw: null, ts: 0 };
 const PERSONA_TTL = 60 * 60 * 1000;
